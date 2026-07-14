@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 
 from app.states import FilterSetup
-from app.keyboards import get_multi_select_kb
+from app.keyboards import get_multi_select_kb, get_skip_kb
 from app.config import settings
 from app.database import (
     clear_history,
@@ -313,6 +313,35 @@ async def process_brand_text(message: types.Message, state: FSMContext):
     await message.answer(
         f"Бренд '{new_brand}' додано! Оберіть ще зі списку або натисніть [Далі]:",
         reply_markup=kb,
+    )
+
+
+@router.callback_query(FilterSetup.model, F.data == "model_skip")
+async def skip_model(callback: types.CallbackQuery, state: FSMContext):
+    """Processing the skipping of the model input."""
+    await state.update_data(model=None)
+    await state.set_state(FilterSetup.price_from)
+
+    await callback.message.edit_text(
+        "Крок 3: Мінімальна ціна (від)\n\n"
+        "Введіть мінімальну ціну в гривнях (тільки цифри) або натисніть [Пропустити].",
+        reply_markup=get_skip_kb("price_from_skip"),
+    )
+    await callback.answer()
+
+
+@router.message(FilterSetup.model)
+async def process_model_text(message: types.Message, state: FSMContext):
+    """Processing text input of the model."""
+    model_name = message.text.strip()
+    await state.update_data(model=model_name)
+    await state.set_state(FilterSetup.price_from)
+
+    await message.answer(
+        f"✅ Модель '{model_name}' збережено.\n\n"
+        "Крок 3: Мінімальна ціна (від)\n\n"
+        "Введіть мінімальну ціну в гривнях (тільки цифри) або натисніть [Пропустити].",
+        reply_markup=get_skip_kb("price_from_skip"),
     )
 
 

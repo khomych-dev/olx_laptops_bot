@@ -39,3 +39,12 @@ def get_multi_select_kb(
         keyboard.append(nav_buttons)
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_skip_kb(callback_data: str) -> InlineKeyboardMarkup:
+    """Generates a keyboard with a single 'Skip' button."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустити", callback_data=callback_data)]
+        ]
+    )
