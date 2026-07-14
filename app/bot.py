@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 
 from app.states import FilterSetup
+from app.keyboards import get_multi_select_kb
 from app.config import settings
 from app.database import (
     clear_history,
@@ -163,6 +164,78 @@ async def cancel_setup(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"Налаштування скасовано.\nСтатус: {status_text}\n\nОберіть дію нижче:",
         reply_markup=get_main_kb(is_active),
+    )
+    await callback.answer()
+
+
+# Basic brand lists for various categories
+BRANDS_LAPTOP = ["Apple", "Asus", "Acer", "HP", "Lenovo", "Dell", "MSI", "Huawei"]
+BRANDS_MOBILE = [
+    "Apple",
+    "Samsung",
+    "Xiaomi",
+    "Motorola",
+    "Google",
+    "OnePlus",
+    "Huawei",
+    "Oppo",
+    "Realme",
+    "Vivo",
+    "Honor",
+    "Meizu",
+]
+BRANDS_TABLET = [
+    "Apple",
+    "Samsung",
+    "Xiaomi",
+    "Lenovo",
+    "Acer",
+    "ASUS",
+    "Microsoft",
+    "HONOR",
+    "Realme",
+    "Vivo",
+    "Huawei",
+    "Meizu",
+]
+
+
+@router.callback_query(FilterSetup.category, F.data.startswith("cat_"))
+async def process_category(callback: types.CallbackQuery, state: FSMContext):
+    """Saves the category and proceeds to brand selection."""
+    category_map = {
+        "cat_laptop": "Ноутбук",
+        "cat_phone": "Телефон",
+        "cat_tablet": "Планшет",
+    }
+    selected_category = category_map[callback.data]
+
+    # Determines the list of brands depending on the category
+    if selected_category == "Ноутбук":
+        brands_list = BRANDS_LAPTOP
+    elif selected_category == "Телефон":
+        brands_list = BRANDS_MOBILE
+    else:
+        brands_list = BRANDS_TABLET
+
+    # Saves data in FSM
+    await state.update_data(
+        category=selected_category,
+        available_brands=brands_list,  # saves the list for the keyboard
+        selected_brands=[],  # will save the selected ones here
+    )
+
+    # Switching the state to brand selection
+    await state.set_state(FilterSetup.brand)
+
+    kb = get_multi_select_kb(options=brands_list, selected=[], action_prefix="brand")
+
+    await callback.message.edit_text(
+        f"Категорія: {selected_category}\n\n"
+        "Крок 1: Бренд\n"
+        "Оберіть один або кілька брендів зі списку нижче. "
+        "Також ви можете просто написати назву бренду в чат.",
+        reply_markup=kb,
     )
     await callback.answer()
 
