@@ -240,6 +240,82 @@ async def process_category(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@router.callback_query(FilterSetup.brand, F.data.startswith("brand_"))
+async def process_brand_selection(callback: types.CallbackQuery, state: FSMContext):
+    """Processing clicks on the brand selection keyboard."""
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+
+    # If "Skip" or "Next" was pressed -> proceed to Model selection
+    if action in ("skip", "next"):
+        if action == "skip":
+            await state.update_data(selected_brands=[])
+
+        await state.set_state(FilterSetup.model)
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⏭ Пропустити", callback_data="model_skip")]
+            ]
+        )
+        await callback.message.edit_text(
+            "Крок 2: Модель\n\n"
+            "Напишіть у чат назву моделі (наприклад: 'ProBook', 'S24 Ultra' або 'Air').\n"
+            "Якщо модель не важлива, натисніть [Пропустити].",
+            reply_markup=kb,
+        )
+        await callback.answer()
+        return
+
+    # If a specific brand was clicked (set/remove the checkbox)
+    idx = int(action)
+    available_brands = data.get("available_brands", [])
+    selected_brands = data.get("selected_brands", [])
+
+    selected_brand = available_brands[idx]
+    if selected_brand in selected_brands:
+        selected_brands.remove(selected_brand)
+    else:
+        selected_brands.append(selected_brand)
+
+    await state.update_data(selected_brands=selected_brands)
+
+    kb = get_multi_select_kb(
+        options=available_brands, selected=selected_brands, action_prefix="brand"
+    )
+    # Updating the keyboard under the message
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer()
+
+
+@router.message(FilterSetup.brand)
+async def process_brand_text(message: types.Message, state: FSMContext):
+    """Processing brand input text (if the user typed it manually)."""
+    data = await state.get_data()
+    selected_brands = data.get("selected_brands", [])
+    available_brands = data.get("available_brands", [])
+
+    new_brand = message.text.strip()
+
+    # Adding a new brand to the lists if it's not there yet
+    if new_brand not in available_brands:
+        available_brands.append(new_brand)
+        await state.update_data(available_brands=available_brands)
+
+    if new_brand not in selected_brands:
+        selected_brands.append(new_brand)
+        await state.update_data(selected_brands=selected_brands)
+
+    kb = get_multi_select_kb(
+        options=available_brands, selected=selected_brands, action_prefix="brand"
+    )
+
+    await message.answer(
+        f"Бренд '{new_brand}' додано! Оберіть ще зі списку або натисніть [Далі]:",
+        reply_markup=kb,
+    )
+
+
 async def main():
     await init_db()
     router.message.middleware(AccessMiddleware())
