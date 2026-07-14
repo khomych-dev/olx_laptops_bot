@@ -1,0 +1,144 @@
+import asyncio
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router, types
+from aiogram.filters import CommandStart
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from app.config import settings
+from app.database import (
+    clear_history,
+    get_all_filters,
+    get_user_status,
+    init_db,
+    set_user_status,
+)
+
+bot = Bot(token=settings.bot_token)
+dp = Dispatcher()
+router = Router()
+
+
+class AccessMiddleware(BaseMiddleware):
+    """Blocks access for all users whose ID is not listed in .env"""
+
+    async def __call__(
+        self,
+        handler: Callable[[types.TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: types.TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        user = data.get("event_from_user")
+        if user and user.id not in settings.allowed_users:
+            return
+        return await handler(event, data)
+
+
+def get_main_kb(is_active: bool = False) -> InlineKeyboardMarkup:
+    """Generates the main menu keyboard. The button text changes depending on the status."""
+    toggle_btn = InlineKeyboardButton(
+        text="🔴 Зупинити" if is_active else "🟢 Запустити",
+        callback_data="main_toggle",
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⚙️ Налаштувати фільтр", callback_data="main_setup"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📋 Поточні налаштування", callback_data="main_current"
+                )
+            ],
+            [toggle_btn],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Очистити історію", callback_data="main_clear"
+                )
+            ],
+        ]
+    )
+
+
+@router.message(CommandStart())
+async def cmd_start(message: types.Message):
+    """Command Handler /start."""
+    is_active = await get_user_status(message.from_user.id)
+    status_text = "🟢 Шукаю кожні 20 хв" if is_active else "🔴 Зупинено"
+
+    await message.answer(
+        f"Бажаю здоров'я, пане Сергію! Я бот для моніторингу OLX.\nСтатус: {status_text}\n\nОберіть дію нижче:",
+        reply_markup=get_main_kb(is_active),
+    )
+
+
+@router.callback_query(F.data == "main_toggle")
+async def process_toggle(callback: types.CallbackQuery):
+    """Turns monitoring on or off."""
+    user_id = callback.from_user.id
+    current_status = await get_user_status(user_id)
+    new_status = not current_status
+
+    await set_user_status(user_id, new_status)
+    status_text = "🟢 Шукаю кожні 20 хв" if new_status else "🔴 Зупинено"
+
+    # Оновлюємо повідомлення з новими кнопками
+    await callback.message.edit_text(
+        f"Статус моніторингу змінено.\nПоточний статус: {status_text}",
+        reply_markup=get_main_kb(new_status),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "main_current")
+async def process_current_settings(callback: types.CallbackQuery):
+    """Shows the current saved filters."""
+    user_id = callback.from_user.id
+    filters = await get_all_filters(user_id)
+
+    if not filters:
+        text = "Фільтри не задані. Зараз я не маю конкретних параметрів для пошуку."
+    else:
+        text = "Ваші поточні налаштування:\n\n"
+        for category, data in filters.items():
+            text += f"📁 Категорія: {category}\n"
+            for key, value in data.items():
+                # If it's a list (multi-select), join it with commas
+                display_value = ", ".join(value) if isinstance(value, list) else value
+                text += f"  - {key}: {display_value}\n"
+            text += "\n"
+
+    await callback.message.answer(text)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "main_clear")
+async def process_clear_history(callback: types.CallbackQuery):
+    """Clears the history of sent ads."""
+    await clear_history(callback.from_user.id)
+    # show_alert=True displays a pop-up window in the center of the screen
+    await callback.answer("Історію успішно очищено!", show_alert=True)
+
+
+@router.callback_query(F.data == "main_setup")
+async def process_setup(callback: types.CallbackQuery):
+    """Placeholder for filter setup function."""
+    await callback.answer(
+        "Ця функція буде додана на наступному кроці (FSM)!", show_alert=True
+    )
+
+
+async def main():
+    await init_db()
+    router.message.middleware(AccessMiddleware())
+    router.callback_query.middleware(AccessMiddleware())
+    dp.include_router(router)
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
