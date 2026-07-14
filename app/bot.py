@@ -5,7 +5,9 @@ from typing import Any
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.fsm.context import FSMContext
 
+from app.states import FilterSetup
 from app.config import settings
 from app.database import (
     clear_history,
@@ -124,11 +126,45 @@ async def process_clear_history(callback: types.CallbackQuery):
 
 
 @router.callback_query(F.data == "main_setup")
-async def process_setup(callback: types.CallbackQuery):
-    """Placeholder for filter setup function."""
-    await callback.answer(
-        "Ця функція буде додана на наступному кроці (FSM)!", show_alert=True
+async def process_setup(callback: types.CallbackQuery, state: FSMContext):
+    """Starting filter setup. Step 1: Category selection."""
+    # Stopping monitoring to avoid conflicts during setup
+    await set_user_status(callback.from_user.id, False)
+
+    # Keyboard for category selection
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💻 Ноутбук", callback_data="cat_laptop")],
+            [InlineKeyboardButton(text="📱 Телефон", callback_data="cat_phone")],
+            [InlineKeyboardButton(text="💊 Планшет", callback_data="cat_tablet")],
+            [InlineKeyboardButton(text="❌ Скасувати", callback_data="setup_cancel")],
+        ]
     )
+
+    # Setting the state "category selection"
+    await state.set_state(FilterSetup.category)
+
+    await callback.message.edit_text(
+        "Моніторинг тимчасово зупинено для налаштування.\n\n"
+        "Оберіть категорію, для якої хочете налаштувати фільтр:",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "setup_cancel")
+async def cancel_setup(callback: types.CallbackQuery, state: FSMContext):
+    """Cancel the setting and return to the main menu."""
+    await state.clear()
+
+    is_active = await get_user_status(callback.from_user.id)
+    status_text = "🟢 Шукаю кожні 20 хв" if is_active else "🔴 Зупинено"
+
+    await callback.message.edit_text(
+        f"Налаштування скасовано.\nСтатус: {status_text}\n\nОберіть дію нижче:",
+        reply_markup=get_main_kb(is_active),
+    )
+    await callback.answer()
 
 
 async def main():
