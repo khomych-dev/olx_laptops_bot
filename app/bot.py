@@ -437,6 +437,73 @@ async def process_price_to_text(message: types.Message, state: FSMContext):
     await transition_to_diagonal(message, state)
 
 
+# Base lists for specific filters
+CPU_LIST = [
+    "Intel Core i3",
+    "Intel Core i5",
+    "Intel Core i7/i9",
+    "AMD Ryzen 3",
+    "AMD Ryzen 5",
+    "AMD Ryzen 7/9",
+    "Apple M-серія",
+]
+STORAGE_LIST = ["до 32 ГБ", "64 ГБ", "128 ГБ", "256 ГБ", "512 ГБ", "1 ТБ і більше"]
+
+
+@router.callback_query(FilterSetup.diagonal, F.data.startswith("diag_"))
+async def process_diagonal_selection(callback: types.CallbackQuery, state: FSMContext):
+    """Handling keystrokes for selecting a diagonal and branching the path."""
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+
+    # If you clicked “Skip” or “Next” -> proceed to the next step
+    if action in ("skip", "next"):
+        if action == "skip":
+            await state.update_data(selected_diagonals=[])
+
+        category = data.get("category")
+
+        if category == "Ноутбук":
+            # Path for laptops: Processor
+            await state.update_data(available_cpus=CPU_LIST, selected_cpus=[])
+            await state.set_state(FilterSetup.cpu)
+            kb = get_multi_select_kb(options=CPU_LIST, selected=[], action_prefix="cpu")
+            text = "Крок 6: Процесор\n\nОберіть один або кілька варіантів:"
+        else:
+            # Path for phones/tablets: Built-in memory
+            await state.update_data(
+                available_storages=STORAGE_LIST, selected_storages=[]
+            )
+            await state.set_state(FilterSetup.storage)
+            kb = get_multi_select_kb(
+                options=STORAGE_LIST, selected=[], action_prefix="storage"
+            )
+            text = "Крок 6: Вбудована пам'ять (Storage)\n\nОберіть один або кілька варіантів:"
+
+        await callback.message.edit_text(text, reply_markup=kb)
+        await callback.answer()
+        return
+
+    # Processing the selection/cancellation of a checkbox
+    idx = int(action)
+    available_diagonals = data.get("available_diagonals", [])
+    selected_diagonals = data.get("selected_diagonals", [])
+
+    selected_diag = available_diagonals[idx]
+    if selected_diag in selected_diagonals:
+        selected_diagonals.remove(selected_diag)
+    else:
+        selected_diagonals.append(selected_diag)
+
+    await state.update_data(selected_diagonals=selected_diagonals)
+
+    kb = get_multi_select_kb(
+        options=available_diagonals, selected=selected_diagonals, action_prefix="diag"
+    )
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer()
+
+
 async def main():
     await init_db()
     router.message.middleware(AccessMiddleware())
