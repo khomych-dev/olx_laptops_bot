@@ -345,6 +345,98 @@ async def process_model_text(message: types.Message, state: FSMContext):
     )
 
 
+# Base lists for diagonals
+DIAG_LAPTOP = ['До 13"', '13"-14"', '15"-15.6"', '16" і більше']
+DIAG_MOBILE = ['До 5"', '5"-6"', '6"-6.5"', '6.5" і більше']
+DIAG_TABLET = ['До 8"', '8"-10"', '10"-12"', '12" і більше']
+
+
+@router.callback_query(FilterSetup.price_from, F.data == "price_from_skip")
+async def skip_price_from(callback: types.CallbackQuery, state: FSMContext):
+    """Processing the skipping of the minimum price input."""
+    await state.update_data(price_from=None)
+    await state.set_state(FilterSetup.price_to)
+    await callback.message.edit_text(
+        "Крок 4: Максимальна ціна (до)\n\n"
+        "Введіть максимальну ціну в гривнях (тільки цифри) або натисніть [Пропустити].",
+        reply_markup=get_skip_kb("price_to_skip"),
+    )
+    await callback.answer()
+
+
+@router.message(FilterSetup.price_from)
+async def process_price_from_text(message: types.Message, state: FSMContext):
+    """Processing text input of the minimum price."""
+    price_text = message.text.strip()
+
+    if not price_text.isdigit():
+        await message.answer(
+            "Помилка: ціна має складатися тільки з цифр (без пробілів чи літер).\n"
+            "Будь ласка, введіть число (наприклад: 15000) або натисніть [Пропустити].",
+            reply_markup=get_skip_kb("price_from_skip"),
+        )
+        return
+
+    await state.update_data(price_from=int(price_text))
+    await state.set_state(FilterSetup.price_to)
+    await message.answer(
+        f"✅ Мінімальна ціна: {price_text} грн.\n\n"
+        "Крок 4: Максимальна ціна (до)\n\n"
+        "Введіть максимальну ціну в гривнях (тільки цифри) або натисніть [Пропустити].",
+        reply_markup=get_skip_kb("price_to_skip"),
+    )
+
+
+async def transition_to_diagonal(message_or_callback, state: FSMContext):
+    """Helper function to transition to diagonal selection (to avoid code duplication)."""
+    data = await state.get_data()
+    category = data.get("category")
+
+    if category == "Ноутбук":
+        diag_list = DIAG_LAPTOP
+    elif category == "Телефон":
+        diag_list = DIAG_MOBILE
+    else:
+        diag_list = DIAG_TABLET
+
+    await state.update_data(available_diagonals=diag_list, selected_diagonals=[])
+    await state.set_state(FilterSetup.diagonal)
+
+    kb = get_multi_select_kb(options=diag_list, selected=[], action_prefix="diag")
+
+    text = "Крок 5: Діагональ екрана\n\nОберіть один або кілька варіантів:"
+
+    if isinstance(message_or_callback, types.CallbackQuery):
+        await message_or_callback.message.edit_text(text, reply_markup=kb)
+    else:
+        await message_or_callback.answer(text, reply_markup=kb)
+
+
+@router.callback_query(FilterSetup.price_to, F.data == "price_to_skip")
+async def skip_price_to(callback: types.CallbackQuery, state: FSMContext):
+    """Processing the skipping of the maximum price input."""
+    await state.update_data(price_to=None)
+    await transition_to_diagonal(callback, state)
+    await callback.answer()
+
+
+@router.message(FilterSetup.price_to)
+async def process_price_to_text(message: types.Message, state: FSMContext):
+    """Processing text input of the maximum price."""
+    price_text = message.text.strip()
+
+    if not price_text.isdigit():
+        await message.answer(
+            "Помилка: ціна має складатися тільки з цифр.\n"
+            "Будь ласка, введіть число (наприклад: 25000) або натисніть [Пропустити].",
+            reply_markup=get_skip_kb("price_to_skip"),
+        )
+        return
+
+    await state.update_data(price_to=int(price_text))
+    await transition_to_diagonal(message, state)
+
+
 async def main():
     await init_db()
     router.message.middleware(AccessMiddleware())
