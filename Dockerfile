@@ -24,15 +24,13 @@ COPY --from=builder /app/.venv /app/.venv
 COPY main.py ./
 COPY app/ ./app/
 
-# Make the venv's binaries take priority so `python` resolves to the venv
+# Enable log buffering to see print() immediately
+ENV PYTHONUNBUFFERED=1
+
+# Make the venv's binaries take priority
 ENV PATH="/app/.venv/bin:$PATH"
 
-# The SQLite database is written to /app/data inside the container.
-# Mount a host volume here to persist the database across container restarts.
 VOLUME ["/app/data"]
-
-# Tell the app to write the DB inside the mounted data directory.
-# app/database.py reads DB_NAME from an env variable when it is set.
 ENV DB_PATH=/app/data/bot_data.sqlite3
 
 CMD ["python", "main.py"]
