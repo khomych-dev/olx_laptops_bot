@@ -43,7 +43,8 @@ async def check_new_ads(bot: Bot):
                             f"🔗 <a href='{ad.url}'>Перейти на OLX</a>"
                         )
                         try:
-                            if ad.image_url:
+                            # Checks if the image actually exists and has a valid format
+                            if ad.image_url and ad.image_url.startswith("http"):
                                 await bot.send_photo(
                                     chat_id=user_id,
                                     photo=ad.image_url,

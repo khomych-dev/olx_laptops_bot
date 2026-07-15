@@ -78,14 +78,25 @@ def parse_html(soup: BeautifulSoup) -> list[AdItem]:
                 else url.split("/")[-1].split(".")[0]
             )
 
+            # Improved Title Search
             title_tag = card.find("h6")
-            title = title_tag.text.strip() if title_tag else "Без назви"
+            if title_tag:
+                title = title_tag.text.strip()
+            else:
+                # If h6 is not found, extract text from the entire link block
+                title = " ".join(link_tag.text.split()) if link_tag else "Без назви"
 
             price_tag = card.find("p", attrs={"data-testid": "ad-price"})
             price = price_tag.text.strip() if price_tag else "Ціна не вказана"
 
+            # We retrieve the actual image, ignoring the empty placeholders
             img_tag = card.find("img")
-            image_url = img_tag.get("src") if img_tag else ""
+            image_url = ""
+            if img_tag:
+                image_url = img_tag.get("src") or img_tag.get("data-src") or ""
+                # If the URL is not a valid link, discard it
+                if not image_url.startswith("http"):
+                    image_url = ""
 
             items.append(AdItem(ad_id, title, price, url, image_url))
         except Exception as e:
