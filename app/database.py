@@ -104,3 +104,13 @@ async def clear_history(user_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
         await db.commit()
+
+
+async def get_active_users() -> list[int]:
+    """Returns a list of user IDs for whom monitoring is enabled."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT user_id FROM users WHERE is_active = 1"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]

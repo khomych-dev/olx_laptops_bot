@@ -6,8 +6,10 @@ from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.states import FilterSetup
+from app.monitor import check_new_ads
 from app.keyboards import get_multi_select_kb, get_skip_kb
 from app.config import settings
 from app.database import (
@@ -767,6 +769,13 @@ async def main():
     router.message.middleware(AccessMiddleware())
     router.callback_query.middleware(AccessMiddleware())
     dp.include_router(router)
+
+    # Initializing and starting the scheduler
+    scheduler = AsyncIOScheduler()
+    # Starting the check every 20 minutes
+    scheduler.add_job(check_new_ads, trigger="interval", minutes=20, args=(bot,))
+    scheduler.start()
+
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
