@@ -57,7 +57,7 @@ def get_main_kb(is_active: bool = False) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="📋 Поточні налаштування", callback_data="main_current"
+                    text="📋 Поточні налаштування", callback_data="current_filters"
                 )
             ],
             [toggle_btn],
@@ -147,8 +147,14 @@ async def process_clear_history(callback: types.CallbackQuery):
 @router.callback_query(F.data == "main_setup")
 async def process_setup(callback: types.CallbackQuery, state: FSMContext):
     """Starting filter setup. Step 1: Category selection."""
+    user_id = callback.from_user.id
+
+    # Save the current monitoring status so we can restore it if setup is cancelled
+    was_active = await get_user_status(user_id)
+    await state.update_data(was_active=was_active)
+
     # Stopping monitoring to avoid conflicts during setup
-    await set_user_status(callback.from_user.id, False)
+    await set_user_status(user_id, False)
 
     # Keyboard for category selection
     kb = InlineKeyboardMarkup(
@@ -174,14 +180,17 @@ async def process_setup(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "setup_cancel")
 async def cancel_setup(callback: types.CallbackQuery, state: FSMContext):
     """Cancel the setting and return to the main menu."""
+    data = await state.get_data()
+    was_active = data.get("was_active", False)
     await state.clear()
 
-    is_active = await get_user_status(callback.from_user.id)
-    status_text = "🟢 Шукаю кожні 20 хв" if is_active else "🔴 Зупинено"
+    # Restore the monitoring status that was active before setup started
+    await set_user_status(callback.from_user.id, was_active)
+    status_text = "🟢 Шукаю кожні 20 хв" if was_active else "🔴 Зупинено"
 
     await callback.message.edit_text(
         f"Налаштування скасовано.\nСтатус: {status_text}\n\nОберіть дію нижче:",
-        reply_markup=get_main_kb(is_active),
+        reply_markup=get_main_kb(was_active),
     )
     await callback.answer()
 
@@ -846,6 +855,18 @@ async def process_delete_category(callback: types.CallbackQuery):
 
     # Refreshing the list of filters after deletion
     await show_filters(callback)
+
+
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: types.CallbackQuery):
+    """Returns the user to the main menu."""
+    user_id = callback.from_user.id
+    is_active = await get_user_status(user_id)
+    await callback.message.edit_text(
+        "Оберіть дію:",
+        reply_markup=get_main_kb(is_active),
+    )
+    await callback.answer()
 
 
 async def main():
