@@ -1,0 +1,20 @@
+services:
+  bot:
+    build: .
+    container_name: olx_laptops_bot
+    restart: unless-stopped
+
+    # Load BOT_TOKEN and ALLOWED_USERS from the .env file on the host
+    env_file:
+      - .env
+
+    # Override only the DB path so it lands inside the named volume
+    environment:
+      - DB_PATH=/app/data/bot_data.sqlite3
+
+    volumes:
+      # Persist the SQLite database across container restarts and rebuilds
+      - bot_data:/app/data
+
+volumes:
+  bot_data:

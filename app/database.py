@@ -1,7 +1,11 @@
 import json
+import os
+
 import aiosqlite
 
-DB_NAME = "bot_data.sqlite3"
+# When running in Docker the DB_PATH env var points to the mounted volume.
+# Locally it falls back to the original file in the working directory.
+DB_NAME = os.environ.get("DB_PATH", "bot_data.sqlite3")
 
 
 async def init_db():
