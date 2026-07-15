@@ -1,4 +1,5 @@
 import asyncio
+
 from aiogram import Bot
 
 from app.database import (
@@ -9,8 +10,19 @@ from app.database import (
 )
 from app.parser import build_url, fetch_html, parse_html, passes_local_filter
 
+# Prevents two concurrent check_new_ads runs (e.g. scheduler + immediate task on toggle-on)
+_check_lock = asyncio.Lock()
+
 
 async def check_new_ads(bot: Bot):
+    if _check_lock.locked():
+        print("⏭ [МОНІТОРИНГ] Вже виконується, пропускаємо запуск.")
+        return
+    async with _check_lock:
+        await _do_check(bot)
+
+
+async def _do_check(bot: Bot):
     print("\n⏳ [МОНІТОРИНГ] Запуск перевірки OLX...")
     users = await get_active_users()
 
