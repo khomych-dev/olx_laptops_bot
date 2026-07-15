@@ -89,14 +89,19 @@ async def process_toggle(callback: types.CallbackQuery):
     new_status = not current_status
 
     await set_user_status(user_id, new_status)
+    # If you changed the interval to 20 minutes, the text should be appropriate
     status_text = "🟢 Шукаю кожні 20 хв" if new_status else "🔴 Зупинено"
 
-    # Оновлюємо повідомлення з новими кнопками
+    # Update the message with new buttons
     await callback.message.edit_text(
         f"Статус моніторингу змінено.\nПоточний статус: {status_text}",
         reply_markup=get_main_kb(new_status),
     )
     await callback.answer()
+
+    # If we just started monitoring — perform the first check immediately!
+    if new_status:
+        asyncio.create_task(check_new_ads(callback.bot))
 
 
 @router.callback_query(F.data == "main_current")
@@ -390,7 +395,9 @@ async def process_price_from_text(message: types.Message, state: FSMContext):
     )
 
 
-async def transition_to_diagonal(message_or_callback, state: FSMContext):
+async def transition_to_diagonal(
+    message_or_callback, state: FSMContext, prefix: str = ""
+):
     """Helper function to transition to diagonal selection (to avoid code duplication)."""
     data = await state.get_data()
     category = data.get("category")
@@ -407,7 +414,8 @@ async def transition_to_diagonal(message_or_callback, state: FSMContext):
 
     kb = get_multi_select_kb(options=diag_list, selected=[], action_prefix="diag")
 
-    text = "Крок 5: Діагональ екрана\n\nОберіть один або кілька варіантів:"
+    # Add the prefix (if there is one) before the step text
+    text = f"{prefix}Крок 5: Діагональ екрана\n\nОберіть один або кілька варіантів:"
 
     if isinstance(message_or_callback, types.CallbackQuery):
         await message_or_callback.message.edit_text(text, reply_markup=kb)
@@ -437,7 +445,10 @@ async def process_price_to_text(message: types.Message, state: FSMContext):
         return
 
     await state.update_data(price_to=int(price_text))
-    await transition_to_diagonal(message, state)
+    # Pass the confirmation of saving the price to the prefix
+    await transition_to_diagonal(
+        message, state, prefix=f"✅ Максимальна ціна: {price_text} грн.\n\n"
+    )
 
 
 # Base lists for specific filters
@@ -773,7 +784,7 @@ async def main():
     # Initializing and starting the scheduler
     scheduler = AsyncIOScheduler()
     # Starting the check every 20 minutes
-    scheduler.add_job(check_new_ads, trigger="interval", minutes=20, args=(bot,))
+    scheduler.add_job(check_new_ads, trigger="interval", minutes=1, args=(bot,))
     scheduler.start()
 
     await bot.delete_webhook(drop_pending_updates=True)
