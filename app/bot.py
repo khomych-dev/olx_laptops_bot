@@ -504,6 +504,122 @@ async def process_diagonal_selection(callback: types.CallbackQuery, state: FSMCo
     await callback.answer()
 
 
+OS_LIST = ["Android", "iOS", "HarmonyOS", "Windows"]
+RAM_LIST = ["до 4 ГБ", "6 ГБ", "8 ГБ", "12 ГБ", "16 ГБ", "32+ ГБ"]
+
+
+async def transition_to_ram(callback: types.CallbackQuery, state: FSMContext):
+    """A joint transition to selecting the main program after the branches."""
+    await state.update_data(available_rams=RAM_LIST, selected_rams=[])
+    await state.set_state(FilterSetup.ram)
+
+    kb = get_multi_select_kb(options=RAM_LIST, selected=[], action_prefix="ram")
+    await callback.message.edit_text(
+        "Фільтр: Оперативна пам'ять (ОЗП)\n\nОберіть один або кілька варіантів:",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+# --- PROCESSOR PERFORMANCE (Laptops) ---
+@router.callback_query(FilterSetup.cpu, F.data.startswith("cpu_"))
+async def process_cpu_selection(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+
+    if action in ("skip", "next"):
+        if action == "skip":
+            await state.update_data(selected_cpus=[])
+        await transition_to_ram(callback, state)
+        return
+
+    idx = int(action)
+    available_cpus = data.get("available_cpus", [])
+    selected_cpus = data.get("selected_cpus", [])
+
+    selected = available_cpus[idx]
+    if selected in selected_cpus:
+        selected_cpus.remove(selected)
+    else:
+        selected_cpus.append(selected)
+
+    await state.update_data(selected_cpus=selected_cpus)
+    kb = get_multi_select_kb(
+        options=available_cpus, selected=selected_cpus, action_prefix="cpu"
+    )
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer()
+
+
+# --- PROCESSING BUILT-IN MEMORY (Phones/Tablets) ---
+@router.callback_query(FilterSetup.storage, F.data.startswith("storage_"))
+async def process_storage_selection(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+
+    if action in ("skip", "next"):
+        if action == "skip":
+            await state.update_data(selected_storages=[])
+
+        # After built-in memory, we go to the Operating System
+        await state.update_data(available_os=OS_LIST, selected_os=[])
+        await state.set_state(FilterSetup.os_type)
+        kb = get_multi_select_kb(options=OS_LIST, selected=[], action_prefix="os")
+
+        await callback.message.edit_text(
+            "Фільтр: Операційна система\n\nОберіть один або кілька варіантів:",
+            reply_markup=kb,
+        )
+        await callback.answer()
+        return
+
+    idx = int(action)
+    available = data.get("available_storages", [])
+    selected = data.get("selected_storages", [])
+
+    item = available[idx]
+    if item in selected:
+        selected.remove(item)
+    else:
+        selected.append(item)
+
+    await state.update_data(selected_storages=selected)
+    kb = get_multi_select_kb(
+        options=available, selected=selected, action_prefix="storage"
+    )
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer()
+
+
+# --- PROCESSING OPERATING SYSTEM (Phones/Tablets) ---
+@router.callback_query(FilterSetup.os_type, F.data.startswith("os_"))
+async def process_os_selection(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+
+    if action in ("skip", "next"):
+        if action == "skip":
+            await state.update_data(selected_os=[])
+        # We bring the path back to RAM
+        await transition_to_ram(callback, state)
+        return
+
+    idx = int(action)
+    available = data.get("available_os", [])
+    selected = data.get("selected_os", [])
+
+    item = available[idx]
+    if item in selected:
+        selected.remove(item)
+    else:
+        selected.append(item)
+
+    await state.update_data(selected_os=selected)
+    kb = get_multi_select_kb(options=available, selected=selected, action_prefix="os")
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer()
+
+
 async def main():
     await init_db()
     router.message.middleware(AccessMiddleware())
