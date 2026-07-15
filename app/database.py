@@ -114,3 +114,13 @@ async def get_active_users() -> list[int]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
+
+
+async def delete_filter(user_id: int, category: str):
+    """Deletes a filter for a specific category for the user."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "DELETE FROM filters WHERE user_id = ? AND category = ?",
+            (user_id, category),
+        )
+        await db.commit()

@@ -1,16 +1,16 @@
+from aiogram.filters import Command
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router, types
-from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.states import FilterSetup
 from app.monitor import check_new_ads
-from app.keyboards import get_multi_select_kb, get_skip_kb
+from app.keyboards import get_multi_select_kb, get_skip_kb, get_bottom_menu
 from app.config import settings
 from app.database import (
     clear_history,
@@ -19,6 +19,7 @@ from app.database import (
     init_db,
     set_user_status,
     save_filter,
+    delete_filter,
 )
 
 bot = Bot(token=settings.bot_token)
@@ -69,16 +70,25 @@ def get_main_kb(is_active: bool = False) -> InlineKeyboardMarkup:
     )
 
 
-@router.message(CommandStart())
+@router.message(Command("start"))
 async def cmd_start(message: types.Message):
-    """Command Handler /start."""
-    is_active = await get_user_status(message.from_user.id)
-    status_text = "🟢 Шукаю кожні 20 хв" if is_active else "🔴 Зупинено"
+    user_id = message.from_user.id
+    is_active = await get_user_status(user_id)
 
     await message.answer(
-        f"Бажаю здоров'я, пане Сергію! Я бот для моніторингу OLX.\nСтатус: {status_text}\n\nОберіть дію нижче:",
-        reply_markup=get_main_kb(is_active),
+        "Бажаю здоров'я, пане Сергію! Я бот для моніторингу OLX.\n"
+        "Використовуйте нижнє меню, щоб завжди мати швидкий доступ до налаштувань.",
+        reply_markup=get_bottom_menu(),
     )
+    await message.answer("Оберіть дію:", reply_markup=get_main_kb(is_active))
+
+
+@router.message(F.text == "📋 Головне меню")
+async def text_main_menu(message: types.Message):
+    """Processing the button click from the bottom menu."""
+    user_id = message.from_user.id
+    is_active = await get_user_status(user_id)
+    await message.answer("Головне меню керування:", reply_markup=get_main_kb(is_active))
 
 
 @router.callback_query(F.data == "main_toggle")
@@ -773,6 +783,69 @@ async def skip_keywords(callback: types.CallbackQuery, state: FSMContext):
 @router.message(FilterSetup.keywords)
 async def process_keywords_text(message: types.Message, state: FSMContext):
     await finish_setup(message, state, keywords=message.text.strip())
+
+
+@router.callback_query(F.data == "current_filters")
+async def show_filters(callback: types.CallbackQuery):
+    """Shows the current filters with the ability to delete categories."""
+    user_id = callback.from_user.id
+    filters = await get_all_filters(user_id)
+
+    if not filters:
+        await callback.message.edit_text(
+            "У вас немає збережених фільтрів.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+                ]
+            ),
+        )
+        await callback.answer()
+        return
+
+    text = "Ваші поточні налаштування:\n\n"
+    keyboard_buttons = []
+
+    for category, data in filters.items():
+        text += f"📁 Категорія: {category}\n"
+        for key, value in data.items():
+            if isinstance(value, list):
+                val_str = ", ".join(value)
+            else:
+                val_str = str(value)
+            text += f"  - {key}: {val_str}\n"
+        text += "\n"
+
+        # Add a delete button under each category
+        keyboard_buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"🗑 Видалити: {category}", callback_data=f"del_cat_{category}"
+                )
+            ]
+        )
+
+    keyboard_buttons.append(
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    )
+
+    await callback.message.edit_text(
+        text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("del_cat_"))
+async def process_delete_category(callback: types.CallbackQuery):
+    """Deleting a specific category."""
+    category = callback.data.split("del_cat_")[1]
+    user_id = callback.from_user.id
+
+    await delete_filter(user_id, category)
+    await callback.answer(f"✅ Категорію '{category}' видалено!", show_alert=True)
+
+    # Refreshing the list of filters after deletion
+    await show_filters(callback)
 
 
 async def main():

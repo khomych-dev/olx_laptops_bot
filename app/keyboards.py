@@ -1,4 +1,9 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
 
 
 def get_multi_select_kb(
@@ -47,4 +52,13 @@ def get_skip_kb(callback_data: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="⏭ Пропустити", callback_data=callback_data)]
         ]
+    )
+
+
+def get_bottom_menu() -> ReplyKeyboardMarkup:
+    """A permanent bottom menu for quick access to settings."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📋 Головне меню")]],
+        resize_keyboard=True,
+        is_persistent=True,  # Makes the menu always open
     )
