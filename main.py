@@ -1,6 +1,6 @@
-def main():
-    print("Hello from olx-laptops-bot!")
+import asyncio
 
+from app.bot import main
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
