@@ -114,3 +114,26 @@ def parse_html(soup: BeautifulSoup) -> list[AdItem]:
             continue
 
     return items
+
+
+def passes_local_filter(ad: AdItem, filters: dict) -> bool:
+    """
+    Checks if the ad matches our filters by analyzing its title.
+    """
+    title_low = ad.title.lower()
+
+    # 1. Brand Check
+    if "Бренд" in filters and filters["Бренд"]:
+        # Find at least one of the selected brands in the title
+        # If no brand is found in the title — discard the ad
+        if not any(brand.lower() in title_low for brand in filters["Бренд"]):
+            return False
+
+    # 2. Keyword Check
+    if "Ключові слова" in filters and filters["Ключові слова"]:
+        keyword = filters["Ключові слова"].lower()
+        if keyword not in title_low:
+            return False
+
+    # If the ad passed the checks — keep it
+    return True
