@@ -16,6 +16,7 @@ from app.database import (
     get_user_status,
     init_db,
     set_user_status,
+    save_filter,
 )
 
 bot = Bot(token=settings.bot_token)
@@ -618,6 +619,147 @@ async def process_os_selection(callback: types.CallbackQuery, state: FSMContext)
     kb = get_multi_select_kb(options=available, selected=selected, action_prefix="os")
     await callback.message.edit_reply_markup(reply_markup=kb)
     await callback.answer()
+
+
+CONDITION_LIST = ["Новий", "Вживаний", "На запчастини"]
+
+
+# --- PROCESSING RAM ---
+@router.callback_query(FilterSetup.ram, F.data.startswith("ram_"))
+async def process_ram_selection(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+
+    if action in ("skip", "next"):
+        if action == "skip":
+            await state.update_data(selected_rams=[])
+
+        await state.update_data(
+            available_conditions=CONDITION_LIST, selected_conditions=[]
+        )
+        await state.set_state(FilterSetup.condition)
+        kb = get_multi_select_kb(
+            options=CONDITION_LIST, selected=[], action_prefix="cond"
+        )
+
+        await callback.message.edit_text(
+            "Фільтр: Стан\n\nОберіть один або кілька варіантів:", reply_markup=kb
+        )
+        await callback.answer()
+        return
+
+    idx = int(action)
+    available = data.get("available_rams", [])
+    selected = data.get("selected_rams", [])
+
+    item = available[idx]
+    if item in selected:
+        selected.remove(item)
+    else:
+        selected.append(item)
+
+    await state.update_data(selected_rams=selected)
+    kb = get_multi_select_kb(options=available, selected=selected, action_prefix="ram")
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer()
+
+
+# --- PROCESSING CONDITION ---
+@router.callback_query(FilterSetup.condition, F.data.startswith("cond_"))
+async def process_condition_selection(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+
+    if action in ("skip", "next"):
+        if action == "skip":
+            await state.update_data(selected_conditions=[])
+
+        await state.set_state(FilterSetup.keywords)
+        await callback.message.edit_text(
+            "Останній крок: Ключові слова\n\n"
+            "Введіть слово, яке обов'язково має бути в назві чи описі "
+            "(наприклад: ігровий, гарантія). Якщо це не важливо, натисніть [Пропустити].",
+            reply_markup=get_skip_kb("kw_skip"),
+        )
+        await callback.answer()
+        return
+
+    idx = int(action)
+    available = data.get("available_conditions", [])
+    selected = data.get("selected_conditions", [])
+
+    item = available[idx]
+    if item in selected:
+        selected.remove(item)
+    else:
+        selected.append(item)
+
+    await state.update_data(selected_conditions=selected)
+    kb = get_multi_select_kb(options=available, selected=selected, action_prefix="cond")
+    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.answer()
+
+
+# --- CONCLUSION: KEYWORDS AND SAVING ---
+async def finish_setup(
+    message_or_callback, state: FSMContext, keywords: str | None = None
+):
+    """Collects all data, clears empty fields, and saves to the database."""
+    data = await state.get_data()
+    category = data.get("category")
+    user_id = message_or_callback.from_user.id
+
+    # Form the final filter dictionary
+    filter_data = {}
+    if data.get("selected_brands"):
+        filter_data["Бренд"] = data["selected_brands"]
+    if data.get("model"):
+        filter_data["Модель"] = data["model"]
+    if data.get("price_from"):
+        filter_data["Ціна від"] = data["price_from"]
+    if data.get("price_to"):
+        filter_data["Ціна до"] = data["price_to"]
+    if data.get("selected_diagonals"):
+        filter_data["Діагональ"] = data["selected_diagonals"]
+
+    if data.get("selected_cpus"):
+        filter_data["Процесор"] = data["selected_cpus"]
+    if data.get("selected_storages"):
+        filter_data["Пам'ять (вбудована)"] = data["selected_storages"]
+    if data.get("selected_os"):
+        filter_data["ОС"] = data["selected_os"]
+
+    if data.get("selected_rams"):
+        filter_data["ОЗП"] = data["selected_rams"]
+    if data.get("selected_conditions"):
+        filter_data["Стан"] = data["selected_conditions"]
+    if keywords:
+        filter_data["Ключові слова"] = keywords
+
+    # Saving to database and clearing state
+    await save_filter(user_id, category, filter_data)
+    await state.clear()
+
+    is_active = await get_user_status(user_id)
+    text = f"✅ Фільтр для категорії '{category}' успішно збережено!\n\nОберіть дію:"
+
+    if isinstance(message_or_callback, types.CallbackQuery):
+        await message_or_callback.message.edit_text(
+            text, reply_markup=get_main_kb(is_active)
+        )
+    else:
+        await message_or_callback.answer(text, reply_markup=get_main_kb(is_active))
+
+
+@router.callback_query(FilterSetup.keywords, F.data == "kw_skip")
+async def skip_keywords(callback: types.CallbackQuery, state: FSMContext):
+    await finish_setup(callback, state)
+    await callback.answer()
+
+
+@router.message(FilterSetup.keywords)
+async def process_keywords_text(message: types.Message, state: FSMContext):
+    await finish_setup(message, state, keywords=message.text.strip())
 
 
 async def main():
