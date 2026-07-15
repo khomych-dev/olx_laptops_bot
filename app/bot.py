@@ -114,28 +114,6 @@ async def process_toggle(callback: types.CallbackQuery):
         asyncio.create_task(check_new_ads(callback.bot))
 
 
-@router.callback_query(F.data == "main_current")
-async def process_current_settings(callback: types.CallbackQuery):
-    """Shows the current saved filters."""
-    user_id = callback.from_user.id
-    filters = await get_all_filters(user_id)
-
-    if not filters:
-        text = "Фільтри не задані. Зараз я не маю конкретних параметрів для пошуку."
-    else:
-        text = "Ваші поточні налаштування:\n\n"
-        for category, data in filters.items():
-            text += f"📁 Категорія: {category}\n"
-            for key, value in data.items():
-                # If it's a list (multi-select), join it with commas
-                display_value = ", ".join(value) if isinstance(value, list) else value
-                text += f"  - {key}: {display_value}\n"
-            text += "\n"
-
-    await callback.message.answer(text)
-    await callback.answer()
-
-
 @router.callback_query(F.data == "main_clear")
 async def process_clear_history(callback: types.CallbackQuery):
     """Clears the history of sent ads."""
@@ -878,7 +856,7 @@ async def main():
     # Initializing and starting the scheduler
     scheduler = AsyncIOScheduler()
     # Starting the check every 20 minutes
-    scheduler.add_job(check_new_ads, trigger="interval", minutes=1, args=(bot,))
+    scheduler.add_job(check_new_ads, trigger="interval", minutes=20, args=(bot,))
     scheduler.start()
 
     await bot.delete_webhook(drop_pending_updates=True)

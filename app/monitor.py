@@ -67,12 +67,14 @@ async def _do_check(bot: Bot):
                                 await bot.send_message(
                                     chat_id=user_id, text=text, parse_mode="HTML"
                                 )
-
-                            await add_to_history(user_id, ad.ad_id)
-                            sent_count += 1
-                            await asyncio.sleep(1)
                         except Exception as e:
-                            print(f"❌ Помилка: {e}")
+                            print(f"❌ Помилка надсилання: {e}")
+                            continue
+
+                        # Only record history and increment counter after a confirmed send
+                        await add_to_history(user_id, ad.ad_id)
+                        sent_count += 1
+                        await asyncio.sleep(1)
 
                 print(f"✅ Надіслано нових: {sent_count}")
     print("🏁 [МОНІТОРИНГ] Перевірку завершено.\n")
