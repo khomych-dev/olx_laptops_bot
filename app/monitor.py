@@ -8,7 +8,7 @@ from app.database import (
     get_all_filters,
     is_in_history,
 )
-from app.parser import build_url, fetch_html, parse_html, passes_local_filter
+from app.parser import build_url, fetch_api, parse_api, passes_local_filter
 
 # Prevents two concurrent check_new_ads runs (e.g. scheduler + immediate task on toggle-on)
 _check_lock = asyncio.Lock()
@@ -37,11 +37,11 @@ async def _do_check(bot: Bot):
                 url = build_url(category, filter_data, brand)
                 print(f"🔗 URL для пошуку ({brand or 'Всі бренди'}): {url}")
 
-                soup = await fetch_html(url)
-                if not soup:
+                api_data = await fetch_api(url)
+                if not api_data:
                     continue
 
-                ads = parse_html(soup)
+                ads = parse_api(api_data)
                 passed_ads = [ad for ad in ads if passes_local_filter(ad, filter_data)]
                 print(f"📦 Знайдено: {len(passed_ads)} оголошень.")
 
