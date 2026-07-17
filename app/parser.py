@@ -127,7 +127,7 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
     )
     params_norm = {normalize_text(k): normalize_text(v) for k, v in ad.params.items()}
 
-    # 1. Model (if specified - search in the title, if not - skip model check)
+    # 1. Model (Search EXCLUSIVELY in the ad title)
     if "Модель" in filters and filters["Модель"]:
         model_words = filters["Модель"].lower().split()
         title_norm = normalize_text(title_lower)
@@ -153,9 +153,9 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
                 return False
 
     # 2. Smart memory filter (RAM and Built-in)
-    def check_memory(filter_key, api_keywords):
+    def check_memory(filter_key, api_keywords, typical_values):
         if filter_key not in filters or not filters[filter_key]:
-            return True  # If filter is not specified - skip
+            return True
 
         allowed_nums = []
         for opt in filters[filter_key]:
@@ -164,33 +164,57 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if not allowed_nums:
             return True
 
-        # Step A: Search for in API
+        # Step A: Search for in API characteristics (most accurate)
         for api_kw in api_keywords:
             for k, v in params_norm.items():
                 if api_kw in k:
                     found_nums = re.findall(r"\d+", v)
                     if found_nums:
                         if not any(num in allowed_nums for num in found_nums):
-                            return False  # Memory specified in API is different
-                        return True  # Memory specified in API is correct
+                            return False  # Clearly specified different memory in API
+                        return True  # Correct memory specified in API
 
-        # Step B: If not in API, search for numbers near "GB" or with a slash (12/256)
+        # Step B: If not selected in API, search in text (smart search)
+        found_in_text = []
+
+        # Check format 12/256 or 8/128 (RAM / Built-in)
+        for r, s in re.findall(r"\b(\d{1,2})/(\d{2,4})\b", ad_full_text_norm):
+            if filter_key == "ОЗП":
+                found_in_text.append(r)
+            else:
+                found_in_text.append(s)
+
+        # Check format 128gb, 16гб
         mem_nums = re.findall(r"(\d+)(?:гб|gb|тб|tb)", ad_full_text_norm)
-        for m in re.findall(r"(\d+)/(\d+)", ad_full_text_norm):
-            mem_nums.extend(m)
+        for num in mem_nums:
+            if num in typical_values:
+                found_in_text.append(num)
 
-        if mem_nums:
-            # Found mentions of memory in the text. Check if ours is among them
-            if not any(num in allowed_nums for num in mem_nums):
+        # If memory numbers are found in the text:
+        if found_in_text:
+            if not any(num in allowed_nums for num in found_in_text):
                 return False
 
-        # If memory is not specified anywhere - skip the ad
         return True
 
-    # Keywords for searching in the JSON API
-    if not check_memory("Пам'ять (вбудована)", ["пам", "вбудована"]):
+    # Typical memory volumes for distinguishing RAM and Built-in (cover phones, tablets, laptops)
+    typical_ram = ["1", "2", "3", "4", "6", "8", "12", "16", "24", "32", "64"]
+    typical_storage = [
+        "16",
+        "32",
+        "64",
+        "128",
+        "256",
+        "512",
+        "1000",
+        "1024",
+        "2000",
+        "2048",
+    ]
+
+    if not check_memory("Пам'ять (вбудована)", ["пам", "вбудована"], typical_storage):
         return False
-    if not check_memory("ОЗП", ["озп", "оперативна"]):
+    if not check_memory("ОЗП", ["озп", "оперативна"], typical_ram):
         return False
 
     # 3. Keywords
@@ -199,7 +223,7 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if kw_lower not in ad_full_text_norm:
             return False
 
-    # 4. Price (insurance)
+    # 4. Price
     price_num = int(re.sub(r"[^\d]", "", ad.price)) if re.search(r"\d", ad.price) else 0
     if price_num > 0:
         if (
