@@ -161,11 +161,31 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         brands = [b.lower() for b in filters["Бренд"] if b]
         if brands:
             brand_matched = False
+
+            explicit_brand_param = ""
+            for k, v in ad.params.items():
+                if "марка" in k.lower() or "бренд" in k.lower():
+                    explicit_brand_param += str(v).lower() + " "
+
             for brand in brands:
                 syns = brand_synonyms.get(brand, [brand])
-                if any(syn in clean_full_text for syn in syns):
-                    brand_matched = True
+
+                if explicit_brand_param:
+                    if any(syn in explicit_brand_param for syn in syns):
+                        brand_matched = True
+                        break
+
+                for syn in syns:
+                    if re.search(
+                        rf"(?<![a-zа-яієїґ]){re.escape(syn)}(?![a-zа-яієїґ])",
+                        clean_full_text,
+                    ):
+                        brand_matched = True
+                        break
+
+                if brand_matched:
                     break
+
             if not brand_matched:
                 return False
 
