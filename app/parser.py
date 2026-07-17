@@ -4,9 +4,41 @@ from curl_cffi import requests
 from dataclasses import dataclass, field
 
 CATEGORY_IDS = {
-    "Ноутбук": 89,
+    "Ноутбук": 80,
     "Телефон": 85,
-    "Планшет": 86,
+    "Планшет": 3731,
+}
+
+brand_synonyms = {
+    "apple": [
+        "apple",
+        "macbook",
+        "iphone",
+        "ipad",
+        "айфон",
+        "макбук",
+        "айпад",
+        "екпл",
+        "епл",
+    ],
+    "samsung": ["samsung", "самсунг"],
+    "xiaomi": ["xiaomi", "сяомі", "ксіомі", "ксиоми"],
+    "google": ["google", "pixel", "гугл", "піксель"],
+    "asus": ["asus", "асус"],
+    "acer": ["acer", "асер", "ейсер"],
+    "lenovo": ["lenovo", "леново"],
+    "hp": ["hp", "хп", "ашпі"],
+    "dell": ["dell", "делл"],
+    "huawei": ["huawei", "хуавей"],
+    "motorola": ["motorola", "моторола"],
+    "oneplus": ["oneplus", "ванплас", "ванплюс"],
+    "oppo": ["oppo", "оппо"],
+    "realme": ["realme", "реалмі"],
+    "vivo": ["vivo", "віво"],
+    "honor": ["honor", "хонор"],
+    "meizu": ["meizu", "мейзу"],
+    "microsoft": ["microsoft", "мікрософт", "майкрософт"],
+    "msi": ["msi", "мсі"],
 }
 
 
@@ -130,12 +162,8 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if brands:
             brand_matched = False
             for brand in brands:
-                if brand in clean_full_text:
-                    brand_matched = True
-                    break
-                if brand == "apple" and any(
-                    x in clean_full_text for x in ["macbook", "iphone", "ipad"]
-                ):
+                syns = brand_synonyms.get(brand, [brand])
+                if any(syn in clean_full_text for syn in syns):
                     brand_matched = True
                     break
             if not brand_matched:
@@ -153,16 +181,45 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         model_digits = re.findall(r"\d+", filters["Модель"])
 
         for word in model_words:
+            synonyms = [word]
+            if word == "iphone":
+                synonyms.append("айфон")
+            elif word == "pixel":
+                synonyms.append("піксель")
+            elif word == "pro":
+                synonyms.append("про")
+            elif word in ("promax", "промакс"):
+                synonyms.extend(["pro max", "про макс", "промакс", "promax"])
+            elif word == "samsung":
+                synonyms.append("самсунг")
+            elif word == "xiaomi":
+                synonyms.extend(["сяомі", "ксіомі", "ксиоми"])
+            elif word == "macbook":
+                synonyms.append("макбук")
+            elif word == "ipad":
+                synonyms.append("айпад")
+            elif word == "air":
+                synonyms.append("ейр")
+            elif word == "galaxy":
+                synonyms.extend(["галаксі", "гелаксі"])
+            elif word == "ultra":
+                synonyms.append("ультра")
+            elif word == "plus":
+                synonyms.extend(["плюс", "+"])
+
             matched = False
-            word_esc = re.escape(word)
-            if word.isdigit():
-                if re.search(rf"(?<!\d){word_esc}(?!\d)", clean_title):
-                    matched = True
-            else:
-                if re.search(
-                    rf"(?<![a-zа-яієїґ]){word_esc}(?![a-zа-яієїґ])", clean_title
-                ):
-                    matched = True
+            for syn in synonyms:
+                syn_esc = re.escape(syn)
+                if syn.isdigit():
+                    if re.search(rf"(?<!\d){syn_esc}(?!\d)", clean_title):
+                        matched = True
+                        break
+                else:
+                    if re.search(
+                        rf"(?<![a-zа-яієїґ]){syn_esc}(?![a-zа-яієїґ])", clean_title
+                    ):
+                        matched = True
+                        break
 
             if not matched:
                 return False
