@@ -120,12 +120,19 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         title_lower + " " + " ".join(str(v).lower() for v in ad.params.values())
     )
 
-    # 1. STRICT MODEL CHECK (Only in ad title)
+    # Remove Android/iOS versions to prevent the bot from mistaking "Android 12" for 12 GB of RAM
+    ad_full_text_lower = re.sub(r"(android|ios)\s*\d+", "", ad_full_text_lower)
+
+    # 1. 100% MODEL CHECK IN TITLE
     if "Модель" in filters and filters["Модель"]:
         model_words = filters["Модель"].lower().split()
-        # Split the title into separate words and numbers so that '9' does not pass instead of '10'
-        title_words = re.findall(r"[a-zа-яіїєґ0-9]+", title_lower)
-        title_raw = re.sub(r"\s+", "", title_lower)
+
+        # Remove memory from the title (e.g., "10/256" or "128gb"), so "10" from memory doesn't count as Pixel 10
+        clean_title = re.sub(r"\d+/\d+", "", title_lower)
+        clean_title = re.sub(r"\d+\s*(gb|гб|tb|тб)", "", clean_title)
+
+        title_words = re.findall(r"[a-zа-яіїєґ0-9]+", clean_title)
+        title_raw = re.sub(r"\s+", "", clean_title)
 
         for word in model_words:
             synonyms = [word]
@@ -145,24 +152,24 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
             matched = False
             for syn in synonyms:
                 if syn.isdigit():
-                    # If it's a model digit (e.g., 10), we check if it exists as a separate word
+                    # If it's a digit (10), it must be a separate word
                     if syn in title_words:
                         matched = True
                         break
                 else:
-                    # For text words, we check for occurrences
-                    if syn in title_lower or syn.replace(" ", "") in title_raw:
+                    if syn in clean_title or syn.replace(" ", "") in title_raw:
                         matched = True
                         break
 
             if not matched:
-                return False
+                return False  # Model does not match 100% - reject!
 
-    # 2. STRICT MEMORY CHECK (Must contain at least one of the specified numbers)
-    def check_strict_number(filter_key):
+    # 2. MEMORY INTERSECTION RULE
+    def check_memory_intersection(filter_key, api_keywords, typical_values):
         if filter_key not in filters or not filters[filter_key]:
             return True
 
+        # What we are looking for (e.g., [256, 512])
         allowed_nums = []
         for opt in filters[filter_key]:
             allowed_nums.extend(re.findall(r"\d+", opt))
@@ -170,18 +177,63 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if not allowed_nums:
             return True
 
-        # Extract ALL numbers from the ad (from title and characteristics)
-        ad_all_nums = re.findall(r"\d+", ad_full_text_lower)
+        # What is specified in the ad
+        found_memory_nums = set()
 
-        # If none of the required numbers are found - discard the ad!
-        if not any(num in ad_all_nums for num in allowed_nums):
-            return False
+        # A) Search in API characteristics
+        for api_kw in api_keywords:
+            for k, v in ad.params.items():
+                if api_kw in k.lower():
+                    found_memory_nums.update(re.findall(r"\d+", v))
 
-        return True
+        # B) Search in the text (formats like 128gb or 12/256)
+        found_memory_nums.update(
+            re.findall(r"\b(\d{1,4})\s*(?:гб|gb|тб|tb)\b", ad_full_text_lower)
+        )
+        for m1, m2 in re.findall(r"\b(\d{1,2})/(\d{2,4})\b", ad_full_text_lower):
+            if filter_key == "ОЗП":
+                found_memory_nums.add(m1)
+            else:
+                found_memory_nums.add(m2)
 
-    if not check_strict_number("Пам'ять (вбудована)"):
+        # Additionally: if a single digit typical of memory is present (e.g., "256")
+        all_text_nums = re.findall(r"\b\d+\b", ad_full_text_lower)
+        for num in all_text_nums:
+            if num in typical_values:
+                found_memory_nums.add(num)
+
+        # LOGIC:
+        if not found_memory_nums:
+            # Scenario: Memory is not specified at all -> SKIP
+            return True
+
+        # Scenario: Memory is specified. Check if there is an INTERSECTION with our filter
+        if any(num in allowed_nums for num in found_memory_nums):
+            # The ad lists 128 and 256. We're looking for 256. Match found! -> SKIP
+            return True
+
+        # Scenario: The value in the cauldron is 128. We're looking for 256. No match -> REJECT
         return False
-    if not check_strict_number("ОЗП"):
+
+    typical_ram = ["1", "2", "3", "4", "6", "8", "12", "16", "24", "32", "64"]
+    typical_storage = [
+        "16",
+        "32",
+        "64",
+        "128",
+        "256",
+        "512",
+        "1000",
+        "1024",
+        "2000",
+        "2048",
+    ]
+
+    if not check_memory_intersection(
+        "Пам'ять (вбудована)", ["пам", "вбудована"], typical_storage
+    ):
+        return False
+    if not check_memory_intersection("ОЗП", ["озп", "оперативна"], typical_ram):
         return False
 
     # 3. Keywords
@@ -191,10 +243,9 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if kw_lower not in ad_raw:
             return False
 
-    # 4. Condition
+    # 4. Status
     if "Стан" in filters and filters["Стан"]:
         allowed_opts = [re.sub(r"\s+", "", opt.lower()) for opt in filters["Стан"]]
-
         found_val = None
         for k, v in ad.params.items():
             if "стан" in k.lower():
