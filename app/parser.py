@@ -121,10 +121,11 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
     )
 
     # 1. 100% MODEL CHECK IN TITLE
+    model_digits = []
     if "Модель" in filters and filters["Модель"]:
         model_words = filters["Модель"].lower().split()
+        model_digits = re.findall(r"\d+", filters["Модель"])
 
-        # Remove fractions (10/256) and GB (10gb) from the title so memory numbers don't confuse model search
         clean_title = re.sub(r"\d+\s*[/|-]\s*\d+", "", title_lower)
         clean_title = re.sub(r"\d+\s*(gb|гб|tb|тб)", "", clean_title)
         title_raw = re.sub(r"\s+", "", clean_title)
@@ -147,7 +148,6 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
             matched = False
             for syn in synonyms:
                 if syn.isdigit():
-                    # Regular expression: finds the exact digit (e.g., "10") so that there are no other digits before or after it
                     if re.search(rf"(?<!\d){syn}(?!\d)", clean_title):
                         matched = True
                         break
@@ -159,8 +159,8 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
             if not matched:
                 return False
 
-    # 2. INTERSECTION RULE FOR MEMORY (NO GUESSING WITH PLAIN NUMBERS)
-    def check_memory_intersection(filter_key, api_keywords):
+    # 2. INTERSECTION RULE FOR MEMORY (EXACT NUMBER SEARCH)
+    def check_memory_exact(filter_key, typical_values):
         if filter_key not in filters or not filters[filter_key]:
             return True
 
@@ -171,37 +171,31 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if not allowed_nums:
             return True
 
-        found_memory_nums = set()
+        # Take all digits from the ad
+        all_ad_nums = set(re.findall(r"\d+", ad_full_text_lower))
 
-        # A) From API
-        for api_kw in api_keywords:
-            for k, v in ad.params.items():
-                if api_kw in k.lower():
-                    found_memory_nums.update(re.findall(r"\d+", v))
+        # Scenario 1: Exact match found
+        if any(num in all_ad_nums for num in allowed_nums):
+            return True
 
-        # Б) Only if "gb", "гб" or format "8/128" or "8-128" is present
-        found_memory_nums.update(
-            re.findall(r"\b(\d{1,4})\s*(?:гб|gb|тб|tb)\b", ad_full_text_lower)
-        )
-        for m1, m2 in re.findall(
-            r"\b(\d{1,2})\s*[/|-]\s*(\d{2,4})\b", ad_full_text_lower
-        ):
-            if filter_key == "ОЗП":
-                found_memory_nums.add(m1)
-            else:
-                found_memory_nums.add(m2)
+        # Scenario 2: No exact match found. Check if the seller indicated DIFFERENT memory
+        # Remove model digits to avoid confusing them with memory
+        nums_to_check = [n for n in all_ad_nums if n not in model_digits]
 
-        if not found_memory_nums:
-            return True  # Memory is not specified - skip
+        if any(num in nums_to_check for num in typical_values):
+            # Seller indicated different memory (e.g., 128), but our numbers are not there.
+            return False
 
-        if any(num in allowed_nums for num in found_memory_nums):
-            return True  # Match found - skip
+        # Scenario 3: Memory is not specified at all
+        return True
 
-        return False  # Memory specified, but not ours - reject
+    # Separate lists so RAM and Built-in Memory do not conflict
+    typical_ram = ["2", "3", "4", "6", "8", "12", "16", "24", "32"]
+    typical_storage = ["64", "128", "256", "512", "1000", "1024", "2000", "2048"]
 
-    if not check_memory_intersection("Пам'ять (вбудована)", ["пам", "вбудована"]):
+    if not check_memory_exact("Пам'ять (вбудована)", typical_storage):
         return False
-    if not check_memory_intersection("ОЗП", ["озп", "оперативна"]):
+    if not check_memory_exact("ОЗП", typical_ram):
         return False
 
     # 3. Keywords
