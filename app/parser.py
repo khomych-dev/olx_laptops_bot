@@ -120,10 +120,9 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         title_lower + " " + " ".join(str(v).lower() for v in ad.params.values())
     )
 
-    # 1. 100% MODEL CHECK IN TITLE
+    # 1. STRICT MODEL SEARCH IN TITLE
     model_digits = []
     if "Модель" in filters and filters["Модель"]:
-        # Normalize 'pro max' to prevent .split() from breaking it
         model_str = filters["Модель"].lower()
         model_str = model_str.replace("pro max", "promax").replace(
             "про макс", "промакс"
@@ -131,6 +130,9 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
 
         model_words = model_str.split()
         model_digits = re.findall(r"\d+", filters["Модель"])
+
+        # Remove condition ratings (e.g., 9/10, 10/10) so the bot doesn't confuse them with the '10' model
+        clean_title = re.sub(r"\b(?:10|9|8|7|6|5)/10\b", "", title_lower)
 
         for word in model_words:
             synonyms = [word]
@@ -150,19 +152,24 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
             matched = False
             for syn in synonyms:
                 syn_esc = re.escape(syn)
-                # Strict boundaries: ensure the word/digit is not surrounded by other alphanumeric or Cyrillic characters
-                # This prevents "10" from matching "100" or "iphone10", but successfully matches "10" in "10/256"
-                if re.search(
-                    rf"(?<![a-zа-я0-9ієїґ]){syn_esc}(?![a-zа-я0-9ієїґ])", title_lower
-                ):
-                    matched = True
-                    break
+                if syn.isdigit():
+                    # A digit cannot have other digits next to it (to avoid confusing 10 with 100), but it CAN have letters next to it (10pro)
+                    if re.search(rf"(?<!\d){syn_esc}(?!\d)", clean_title):
+                        matched = True
+                        break
+                else:
+                    # A word cannot be part of another word, but it CAN stand next to a digit (10pro)
+                    if re.search(
+                        rf"(?<![a-zа-яієїґ]){syn_esc}(?![a-zа-яієїґ])", clean_title
+                    ):
+                        matched = True
+                        break
 
             if not matched:
                 return False
 
-    # 2. INTERSECTION RULE FOR MEMORY & LAZY SELLER
-    def check_memory_exact(filter_key, typical_values):
+    # 2. INTERSECTION RULE AND "LAZY SELLER" RULE
+    def check_memory_exact(filter_key, typical_values, is_ram=False):
         if filter_key not in filters or not filters[filter_key]:
             return True
 
@@ -173,29 +180,48 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if not allowed_nums:
             return True
 
-        # Extract all standalone digits from the entire ad
+        # All digits in the ad
         all_ad_nums = set(re.findall(r"\d+", ad_full_text_lower))
 
-        # Scenario 1: Exact match found anywhere in the ad
+        # Scenario 1: Exact match found anywhere in the ad -> SKIP
         if any(num in all_ad_nums for num in allowed_nums):
             return True
 
-        # Scenario 2: No exact match. Check if seller specified a DIFFERENT typical memory size
-        nums_to_check = [n for n in all_ad_nums if n not in model_digits]
+        # Scenario 2: Filter out random digits to avoid false rejections
+        nums_to_check = set([n for n in all_ad_nums if n not in model_digits])
 
+        if is_ram:
+            # For RAM (numbers 2,4,8...) search only for explicit memory specifications, so that "condition 8/10" is not perceived as 8 GB RAM
+            explicit_ram = set()
+            # Search for RAM/Internal patterns (for example: 12/256)
+            for m in re.finditer(
+                r"\b(\d+)\s*(?:/|\\)\s*(?:64|128|256|512|1000|1024|2000|2048)\b",
+                ad_full_text_lower,
+            ):
+                explicit_ram.add(m.group(1))
+            # Check OLX parameters
+            for k, v in ad.params.items():
+                if any(kw in k.lower() for kw in ["оперативна", "озп", "ram"]):
+                    explicit_ram.update(re.findall(r"\d+", str(v).lower()))
+
+            nums_to_check = nums_to_check.intersection(explicit_ram)
+        else:
+            # For built-in memory (128, 256...) any large digit is likely memory
+            nums_to_check = set(n for n in nums_to_check if int(n) > 32)
+
+        # If we FOUND another memory capacity (seller indicated 128, but we are looking for 256) -> DISCARD
         if any(num in nums_to_check for num in typical_values):
-            # Seller indicated a memory size, but it doesn't match what we want
             return False
 
-        # Scenario 3: Lazy seller (no typical memory sizes found in the ad at all)
+        # СScenario 3: Lazy seller (no typical memory sizes found in the ad at all) -> SKIP
         return True
 
     typical_ram = ["2", "3", "4", "6", "8", "12", "16", "24", "32"]
     typical_storage = ["64", "128", "256", "512", "1000", "1024", "2000", "2048"]
 
-    if not check_memory_exact("Пам'ять (вбудована)", typical_storage):
+    if not check_memory_exact("Пам'ять (вбудована)", typical_storage, is_ram=False):
         return False
-    if not check_memory_exact("ОЗП", typical_ram):
+    if not check_memory_exact("ОЗП", typical_ram, is_ram=True):
         return False
 
     # 3. KEYWORDS
@@ -205,9 +231,8 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if kw_lower not in ad_raw:
             return False
 
-    # 4. STATUS
+    # 4. Status
     if "Стан" in filters and filters["Стан"]:
-        allowed_opts = [re.sub(r"\s+", "", opt.lower()) for opt in filters["Стан"]]
         found_val = None
         for k, v in ad.params.items():
             if "стан" in k.lower():
@@ -216,17 +241,23 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
 
         if found_val:
             matched = False
-            for opt in allowed_opts:
-                if "нов" in opt and "нов" in found_val:
-                    matched = True
-                if "вживан" in opt and "вживан" in found_val:
-                    matched = True
-                if "запчастини" in opt and "запчастини" in found_val:
-                    matched = True
+            for opt in filters["Стан"]:
+                opt_lower = opt.lower()
+                if "нов" in opt_lower:
+                    if any(x in found_val for x in ["нов", "new"]):
+                        matched = True
+                elif "вживан" in opt_lower or "б/у" in opt_lower:
+                    if any(x in found_val for x in ["вживан", "б/у", "б/в", "used"]):
+                        matched = True
+                elif "запчастини" in opt_lower:
+                    if any(
+                        x in found_val for x in ["запчасти", "damaged", "відновлення"]
+                    ):
+                        matched = True
             if not matched:
                 return False
 
-    # 5. PRICE
+    # 5. Price
     price_num = int(re.sub(r"[^\d]", "", ad.price)) if re.search(r"\d", ad.price) else 0
     if price_num > 0:
         if (
