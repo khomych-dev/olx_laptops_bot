@@ -114,23 +114,19 @@ def parse_api(data: dict) -> list[AdItem]:
     return items
 
 
-def normalize_text(text: str) -> str:
-    if not text:
-        return ""
-    return re.sub(r"\s+", "", str(text).lower())
-
-
 def passes_local_filter(ad: AdItem, filters: dict) -> bool:
     title_lower = ad.title.lower()
-    ad_full_text_norm = normalize_text(
-        title_lower + " " + " ".join(str(v) for v in ad.params.values())
+    ad_full_text_lower = (
+        title_lower + " " + " ".join(str(v).lower() for v in ad.params.values())
     )
-    params_norm = {normalize_text(k): normalize_text(v) for k, v in ad.params.items()}
 
-    # 1. Model (Search EXCLUSIVELY in the ad title)
+    # 1. STRICT MODEL CHECK (Only in ad title)
     if "Модель" in filters and filters["Модель"]:
         model_words = filters["Модель"].lower().split()
-        title_norm = normalize_text(title_lower)
+        # Split the title into separate words and numbers so that '9' does not pass instead of '10'
+        title_words = re.findall(r"[a-zа-яіїєґ0-9]+", title_lower)
+        title_raw = re.sub(r"\s+", "", title_lower)
+
         for word in model_words:
             synonyms = [word]
             if word == "iphone":
@@ -146,14 +142,24 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
             elif word == "xiaomi":
                 synonyms.extend(["сяомі", "ксіомі"])
 
-            if not any(
-                syn in title_lower or normalize_text(syn) in title_norm
-                for syn in synonyms
-            ):
+            matched = False
+            for syn in synonyms:
+                if syn.isdigit():
+                    # If it's a model digit (e.g., 10), we check if it exists as a separate word
+                    if syn in title_words:
+                        matched = True
+                        break
+                else:
+                    # For text words, we check for occurrences
+                    if syn in title_lower or syn.replace(" ", "") in title_raw:
+                        matched = True
+                        break
+
+            if not matched:
                 return False
 
-    # 2. Smart memory filter (RAM and Built-in)
-    def check_memory(filter_key, api_keywords, typical_values):
+    # 2. STRICT MEMORY CHECK (Must contain at least one of the specified numbers)
+    def check_strict_number(filter_key):
         if filter_key not in filters or not filters[filter_key]:
             return True
 
@@ -164,66 +170,48 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
         if not allowed_nums:
             return True
 
-        # Step A: Search for in API characteristics (most accurate)
-        for api_kw in api_keywords:
-            for k, v in params_norm.items():
-                if api_kw in k:
-                    found_nums = re.findall(r"\d+", v)
-                    if found_nums:
-                        if not any(num in allowed_nums for num in found_nums):
-                            return False  # Clearly specified different memory in API
-                        return True  # Correct memory specified in API
+        # Extract ALL numbers from the ad (from title and characteristics)
+        ad_all_nums = re.findall(r"\d+", ad_full_text_lower)
 
-        # Step B: If not selected in API, search in text (smart search)
-        found_in_text = []
-
-        # Check format 12/256 or 8/128 (RAM / Built-in)
-        for r, s in re.findall(r"\b(\d{1,2})/(\d{2,4})\b", ad_full_text_norm):
-            if filter_key == "ОЗП":
-                found_in_text.append(r)
-            else:
-                found_in_text.append(s)
-
-        # Check format 128gb, 16гб
-        mem_nums = re.findall(r"(\d+)(?:гб|gb|тб|tb)", ad_full_text_norm)
-        for num in mem_nums:
-            if num in typical_values:
-                found_in_text.append(num)
-
-        # If memory numbers are found in the text:
-        if found_in_text:
-            if not any(num in allowed_nums for num in found_in_text):
-                return False
+        # If none of the required numbers are found - discard the ad!
+        if not any(num in ad_all_nums for num in allowed_nums):
+            return False
 
         return True
 
-    # Typical memory volumes for distinguishing RAM and Built-in (cover phones, tablets, laptops)
-    typical_ram = ["1", "2", "3", "4", "6", "8", "12", "16", "24", "32", "64"]
-    typical_storage = [
-        "16",
-        "32",
-        "64",
-        "128",
-        "256",
-        "512",
-        "1000",
-        "1024",
-        "2000",
-        "2048",
-    ]
-
-    if not check_memory("Пам'ять (вбудована)", ["пам", "вбудована"], typical_storage):
+    if not check_strict_number("Пам'ять (вбудована)"):
         return False
-    if not check_memory("ОЗП", ["озп", "оперативна"], typical_ram):
+    if not check_strict_number("ОЗП"):
         return False
 
     # 3. Keywords
     if "Ключові слова" in filters and filters["Ключові слова"]:
-        kw_lower = normalize_text(filters["Ключові слова"].lower())
-        if kw_lower not in ad_full_text_norm:
+        kw_lower = re.sub(r"\s+", "", filters["Ключові слова"].lower())
+        ad_raw = re.sub(r"\s+", "", ad_full_text_lower)
+        if kw_lower not in ad_raw:
             return False
 
-    # 4. Price
+    # 4. Condition
+    if "Стан" in filters and filters["Стан"]:
+        allowed_opts = [re.sub(r"\s+", "", opt.lower()) for opt in filters["Стан"]]
+
+        found_val = None
+        for k, v in ad.params.items():
+            if "стан" in k.lower():
+                found_val = v.lower()
+                break
+
+        if found_val:
+            matched = False
+            for opt in allowed_opts:
+                if "нов" in opt and "нов" in found_val:
+                    matched = True
+                if "вживан" in opt and "вживан" in found_val:
+                    matched = True
+            if not matched:
+                return False
+
+    # 5. Price (additional insurance)
     price_num = int(re.sub(r"[^\d]", "", ad.price)) if re.search(r"\d", ad.price) else 0
     if price_num > 0:
         if (
