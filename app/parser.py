@@ -125,10 +125,9 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
     ad_full_text_norm = normalize_text(
         title_lower + " " + " ".join(str(v) for v in ad.params.values())
     )
-
     params_norm = {normalize_text(k): normalize_text(v) for k, v in ad.params.items()}
 
-    # 1. Stricter search criteria (Search ONLY in the ad title)
+    # 1. Model (if specified - search in the title, if not - skip model check)
     if "Модель" in filters and filters["Модель"]:
         model_words = filters["Модель"].lower().split()
         title_norm = normalize_text(title_lower)
@@ -147,85 +146,60 @@ def passes_local_filter(ad: AdItem, filters: dict) -> bool:
             elif word == "xiaomi":
                 synonyms.extend(["сяомі", "ксіомі"])
 
-            # If at least one word from the model is not found in the title - reject
             if not any(
                 syn in title_lower or normalize_text(syn) in title_norm
                 for syn in synonyms
             ):
                 return False
 
-    # 2. Smart memory and RAM filter
-    def check_memory_param(filter_key, possible_olx_keys, typical_values):
-        if filter_key in filters and filters[filter_key]:
-            allowed_opts = [normalize_text(opt) for opt in filters[filter_key]]
-            allowed_nums = []
-            for opt in allowed_opts:
-                allowed_nums.extend(re.findall(r"\d+", opt))
+    # 2. Smart memory filter (RAM and Built-in)
+    def check_memory(filter_key, api_keywords):
+        if filter_key not in filters or not filters[filter_key]:
+            return True  # If filter is not specified - skip
 
-            if not allowed_nums:
-                return True
+        allowed_nums = []
+        for opt in filters[filter_key]:
+            allowed_nums.extend(re.findall(r"\d+", opt))
 
-            # Step A: Search for the exact value in the OLX API
-            found_val = None
-            for olx_key in possible_olx_keys:
-                if normalize_text(olx_key) in params_norm:
-                    found_val = params_norm[normalize_text(olx_key)]
-                    break
+        if not allowed_nums:
+            return True
 
-            if found_val:
-                found_nums = re.findall(r"\d+", found_val)
-                if found_nums:
-                    if not any(num in allowed_nums for num in found_nums):
-                        return False
-                    return True
+        # Step A: Search for in API
+        for api_kw in api_keywords:
+            for k, v in params_norm.items():
+                if api_kw in k:
+                    found_nums = re.findall(r"\d+", v)
+                    if found_nums:
+                        if not any(num in allowed_nums for num in found_nums):
+                            return False  # Memory specified in API is different
+                        return True  # Memory specified in API is correct
 
-            # Step B: If the parameter is missing in the API, hedge by checking the entire text
-            ad_nums = re.findall(r"\d+", ad_full_text_norm)
-            found_typical_nums = [num for num in ad_nums if num in typical_values]
+        # Step B: If not in API, search for numbers near "GB" or with a slash (12/256)
+        mem_nums = re.findall(r"(\d+)(?:гб|gb|тб|tb)", ad_full_text_norm)
+        for m in re.findall(r"(\d+)/(\d+)", ad_full_text_norm):
+            mem_nums.extend(m)
 
-            if found_typical_nums:
-                # The ad contains numbers similar to memory, check if ours is among them
-                if not any(num in allowed_nums for num in found_typical_nums):
-                    return False
-
-        return True
-
-    typical_storage = ["16", "32", "64", "128", "256", "512", "1000", "1024"]
-    typical_ram = ["3", "4", "6", "8", "12", "16", "24", "32"]
-
-    if not check_memory_param(
-        "Пам'ять (вбудована)", ["Вбудована пам'ять", "Пам'ять"], typical_storage
-    ):
-        return False
-    if not check_memory_param("ОЗП", ["Оперативна пам'ять", "ОЗП"], typical_ram):
-        return False
-
-    # 3. Стан
-    if "Стан" in filters and filters["Стан"]:
-        allowed_opts = [normalize_text(opt) for opt in filters["Стан"]]
-        found_val = None
-        for olx_key in ["Стан"]:
-            if normalize_text(olx_key) in params_norm:
-                found_val = params_norm[normalize_text(olx_key)]
-                break
-
-        if found_val:
-            matched = False
-            for opt in allowed_opts:
-                if "нов" in opt and "нов" in found_val:
-                    matched = True
-                if "вживан" in opt and "вживан" in found_val:
-                    matched = True
-            if not matched:
+        if mem_nums:
+            # Found mentions of memory in the text. Check if ours is among them
+            if not any(num in allowed_nums for num in mem_nums):
                 return False
 
-    # 4. Keywords (Search everywhere)
+        # If memory is not specified anywhere - skip the ad
+        return True
+
+    # Keywords for searching in the JSON API
+    if not check_memory("Пам'ять (вбудована)", ["пам", "вбудована"]):
+        return False
+    if not check_memory("ОЗП", ["озп", "оперативна"]):
+        return False
+
+    # 3. Keywords
     if "Ключові слова" in filters and filters["Ключові слова"]:
         kw_lower = normalize_text(filters["Ключові слова"].lower())
         if kw_lower not in ad_full_text_norm:
             return False
 
-    # 5. Price (backup)
+    # 4. Price (insurance)
     price_num = int(re.sub(r"[^\d]", "", ad.price)) if re.search(r"\d", ad.price) else 0
     if price_num > 0:
         if (
