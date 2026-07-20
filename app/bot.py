@@ -70,7 +70,7 @@ def get_main_kb(is_active: bool = False) -> InlineKeyboardMarkup:
     )
 
 
-@router.message(Command("start"))
+@router.message(Command("start", "menu"))
 async def cmd_start(message: types.Message):
     user_id = message.from_user.id
     is_active = await get_user_status(user_id)
@@ -849,6 +849,16 @@ async def back_to_main(callback: types.CallbackQuery):
 
 async def main():
     await init_db()
+
+    await bot.set_my_commands(
+        [
+            types.BotCommand(
+                command="start", description="Запустити бота / Головне меню"
+            ),
+            types.BotCommand(command="menu", description="Показати головне меню"),
+        ]
+    )
+
     router.message.middleware(AccessMiddleware())
     router.callback_query.middleware(AccessMiddleware())
     dp.include_router(router)
