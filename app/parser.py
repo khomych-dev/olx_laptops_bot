@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 CATEGORY_IDS = {
     "Ноутбук": 80,
     "Телефон": 85,
-    "Планшет": 3731,
 }
 
 brand_synonyms = {
@@ -60,6 +59,9 @@ def build_url(category: str, filters: dict, brand: str = None) -> str:
         params["category_id"] = CATEGORY_IDS[category]
 
     search_query = []
+    if category == "Планшет":
+        search_query.append("Планшет")
+
     if brand:
         search_query.append(brand)
     if "Модель" in filters and filters["Модель"]:
