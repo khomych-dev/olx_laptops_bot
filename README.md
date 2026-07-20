@@ -1,70 +1,70 @@
-# 🛒 OLX Парсер Техніки (Telegram Бот)
+# 🛒 OLX Tech Parser (Telegram Bot)
 
-Потужний та гнучкий Telegram бот для автоматичного моніторингу нових оголошень про продаж техніки (ноутбуки, смартфони, планшети) на OLX.ua.
+A powerful and flexible Telegram bot for automatic monitoring of new tech listings (laptops, smartphones, tablets) on OLX.ua.
 
-## 🌟 Основні можливості
+## 🌟 Key Features
 
-- **Багатокатегорійний моніторинг**: Підтримка пошуку в категоріях "Ноутбуки", "Телефони" та "Планшети".
-- **Детальна фільтрація**: Налаштування фільтрів за брендом, моделлю, процесором, об'ємом пам'яті (ОЗП та накопичувача), діагоналлю екрану, станом та ціною.
-- **Обхід блокувань**: Використання бібліотеки `curl_cffi` для успішного виконання запитів до API OLX із обходом Cloudflare захисту.
-- **Локальна фільтрація**: Інтелектуальний парсинг описів та заголовків для точної відповідності заданим параметрам ("розумний" пошук ключових слів).
-- **Періодичні перевірки**: Інтеграція з `apscheduler` для автоматичної перевірки нових оголошень (за замовчуванням кожні 20 хвилин).
-- **Зручне керування**: Інтерактивне In-line меню (з підтримкою множинного вибору - чекбокси) для налаштування бота прямо в Telegram.
+- **Multi-category Monitoring**: Supports searching across "Laptops", "Phones", and "Tablets" categories.
+- **Detailed Filtering**: Configurable filters for brand, model, CPU, memory (RAM and Storage), screen size, condition, and price.
+- **Bypass Protection**: Uses the `curl_cffi` library to successfully execute requests to the OLX API, bypassing Cloudflare protection.
+- **Local Filtering**: Intelligent parsing of descriptions and titles for exact matches to specified parameters ("smart" keyword search).
+- **Periodic Checks**: Integrated with `apscheduler` to automatically check for new listings (every 20 minutes by default).
+- **User-friendly Management**: Interactive In-line menu (with multi-select checkbox support) to configure the bot directly in Telegram.
 
-## 🛠 Технології
+## 🛠 Technologies
 
 - **Python 3.12+**
-- **aiogram 3.x**: Для асинхронної взаємодії з Telegram API.
-- **aiosqlite**: Для локального збереження фільтрів та статусів моніторингу у базі SQLite.
-- **curl-cffi**: Для імітації браузера під час запитів (impersonate="chrome120").
-- **APScheduler**: Для налаштування фонових завдань (моніторингу).
-- **Docker & Docker Compose**: Для швидкого розгортання.
+- **aiogram 3.x**: For asynchronous interaction with the Telegram API.
+- **aiosqlite**: For local storage of filters and monitoring statuses in an SQLite database.
+- **curl-cffi**: For browser impersonation during API requests (`impersonate="chrome120"`).
+- **APScheduler**: For scheduling background tasks (monitoring).
+- **Docker & Docker Compose**: For quick and easy deployment.
 
-## 🚀 Встановлення та запуск
+## 🚀 Installation and Setup
 
-Бот легко розгортається за допомогою Docker.
+The bot can be easily deployed using Docker.
 
-### Крок 1. Клонування репозиторію
+### Step 1. Clone the repository
 ```bash
 git clone https://github.com/khomych-dev/olx_laptops_bot.git
 cd olx_laptops_bot
 ```
 
-### Крок 2. Налаштування змінних оточення
-Скопіюйте приклад конфігураційного файлу та заповніть його:
+### Step 2. Configure environment variables
+Copy the example configuration file and fill it out:
 ```bash
 cp .env.example .env
 ```
-Відкрийте файл `.env` та вкажіть:
-- `BOT_TOKEN` — токен вашого бота (отримайте у [@BotFather](https://t.me/BotFather))
-- `ALLOWED_USERS` — список Telegram ID користувачів (через кому), яким дозволено користуватись ботом (наприклад: `123456789,987654321`)
+Open the `.env` file and specify:
+- `BOT_TOKEN` — your bot token (obtain it from [@BotFather](https://t.me/BotFather))
+- `ALLOWED_USERS` — a comma-separated list of Telegram user IDs authorized to use the bot (e.g., `123456789,987654321`)
 
-### Крок 3. Запуск за допомогою Docker
+### Step 3. Run with Docker
 ```bash
 docker compose up -d --build
 ```
-Після цього бот автоматично запуститься, а база даних SQLite буде зберігатися у Docker-томі для збереження даних після перезавантаження.
+After this, the bot will start automatically, and the SQLite database will be stored in a Docker volume to persist data across container restarts.
 
-### Альтернативний запуск (локально через `uv` або `pip`)
-Якщо ви не використовуєте Docker, ви можете запустити бота локально:
+### Alternative Run (Locally via `uv` or `pip`)
+If you prefer not to use Docker, you can run the bot locally:
 ```bash
-# Встановлення залежностей (рекомендовано через uv)
+# Install dependencies (recommended via uv)
 uv sync
 
-# Або за допомогою звичайного pip
+# Or using standard pip
 # pip install aiogram aiosqlite apscheduler beautifulsoup4 curl-cffi pydantic-settings
 
-# Запуск бота
+# Run the bot
 python main.py
 ```
 
-## ⚙️ Використання
-1. Знайдіть свого бота у Telegram і натисніть **Start** (або відправте команду `/start`).
-2. Викличте меню кнопкою або командою `/menu`.
-3. Оберіть **"⚙️ Налаштувати фільтр"** та пройдіть всі кроки (Категорія -> Бренд -> Модель -> Пам'ять -> Стан тощо).
-4. Увімкніть моніторинг кнопкою **"🟢 Запустити"**.
-5. Бот буде автоматично надсилати нові оголошення, які відповідають вашим фільтрам!
+## ⚙️ Usage
+1. Find your bot in Telegram and click **Start** (or send the `/start` command).
+2. Open the menu via the keyboard button or the `/menu` command.
+3. Select **"⚙️ Налаштувати фільтр" (Setup filter)** and complete all the steps (Category -> Brand -> Model -> Memory -> Condition, etc.).
+4. Turn on monitoring by clicking **"🟢 Запустити" (Start)**.
+5. The bot will now automatically send you new listings that match your filters!
 
-## 📝 Зауваження щодо пошуку
-- При пошуку планшетів бот шукає оголошення за ключовим словом "Планшет" у всіх категоріях планшетів, і потім відфільтровує відповідні результати, оскільки OLX розділяє їх за окремими підкатегоріями брендів.
-- Переконайтесь, що ваш Telegram ID додано у `ALLOWED_USERS`, інакше бот ігноруватиме ваші повідомлення.
+## 📝 Search Notes
+- When searching for tablets, the bot searches for the keyword "Планшет" across all tablet categories and then filters the relevant results. This is because OLX splits tablets into separate subcategories by brand.
+- Make sure your Telegram ID is added to `ALLOWED_USERS`, otherwise the bot will ignore your messages.
